@@ -1042,7 +1042,9 @@ final class HoverTranslatorApp: NSObject, NSApplicationDelegate {
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.ignoresMouseEvents = true
-        panel.hidesOnDeactivate = true
+        // This accessory app stays inactive while Codex is frontmost. Native menu
+        // suppression is handled by the pointer/AX checks in the polling loop.
+        panel.hidesOnDeactivate = false
         let hostingView = NSHostingView(rootView: TranslationTooltip(model: model))
         panel.contentView = hostingView
         self.hostingView = hostingView
