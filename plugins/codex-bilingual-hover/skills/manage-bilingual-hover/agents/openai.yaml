@@ -1,0 +1,4 @@
+interface:
+  display_name: "管理 Codex 悬停翻译"
+  short_description: "管理 Codex 插件卡片的稳定悬停中文翻译"
+  default_prompt: "Use $manage-bilingual-hover to install and start the Codex hover translation helper."

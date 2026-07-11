@@ -1,0 +1,48 @@
+{
+  "name": "codex-bilingual-hover",
+  "version": "0.3.0",
+  "description": "\u5728 macOS \u6216 Windows \u7684 Codex \u63d2\u4ef6\u76ee\u5f55\u548c\u8be6\u60c5\u9875\u4e2d\u663e\u793a\u672c\u5730\u4e2d\u6587\u60ac\u505c\u7ffb\u8bd1\u3002",
+  "author": {
+    "name": "Wang Yufei",
+    "url": "https://github.com/wyf60"
+  },
+  "homepage": "https://github.com/wyf60/codex-bilingual-hover",
+  "repository": "https://github.com/wyf60/codex-bilingual-hover",
+  "license": "MIT",
+  "keywords": [
+    "translation",
+    "chinese",
+    "bilingual",
+    "accessibility",
+    "macos",
+    "windows"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codex \u60ac\u505c\u7ffb\u8bd1",
+    "shortDescription": "\u5728 Codex \u63d2\u4ef6\u5361\u7247\u4e0a\u505c\u7559 0.2 \u79d2\u540e\u7a33\u5b9a\u663e\u793a\u4e2d\u6587\u3002",
+    "longDescription": "\u5b89\u88c5\u3001\u542f\u52a8\u548c\u7ba1\u7406\u8de8\u5e73\u53f0\u60ac\u505c\u7ffb\u8bd1\u52a9\u624b\u3002\u9ed8\u8ba4\u53ea\u5728 Codex \u63d2\u4ef6\u76ee\u5f55\u4e0e\u63d2\u4ef6\u8be6\u60c5\u9875\u4e2d\u89e6\u53d1\uff0c\u540c\u4e00\u5361\u7247\u6216\u957f\u6587\u672c\u533a\u57df\u5185\u79fb\u52a8\u4e0d\u4f1a\u91cd\u590d\u5f39\u7a97\u3002macOS \u4f7f\u7528\u8f85\u52a9\u529f\u80fd\u548c\u7cfb\u7edf\u7ffb\u8bd1\u6846\u67b6\uff0cWindows \u4f7f\u7528 UI Automation\u3001WPF \u4e0e\u79bb\u7ebf\u8bcd\u5e93\uff1b\u4e24\u8005\u90fd\u4e0d\u4f1a\u4fee\u6539 Codex \u5e94\u7528\u6587\u4ef6\u3002",
+    "developerName": "Wang Yufei",
+    "category": "Productivity",
+    "capabilities": [
+      "Local",
+      "Interactive",
+      "macOS",
+      "Windows"
+    ],
+    "defaultPrompt": [
+      "\u5b89\u88c5\u5e76\u542f\u52a8 Codex \u60ac\u505c\u7ffb\u8bd1\u3002",
+      "\u68c0\u67e5\u60ac\u505c\u7ffb\u8bd1\u52a9\u624b\u7684\u8fd0\u884c\u72b6\u6001\u3002",
+      "\u505c\u6b62 Codex \u60ac\u505c\u7ffb\u8bd1\u3002"
+    ],
+    "brandColor": "#7C3AED",
+    "websiteURL": "https://github.com/wyf60/codex-bilingual-hover",
+    "privacyPolicyURL": "https://github.com/wyf60/codex-bilingual-hover/blob/main/PRIVACY.md",
+    "termsOfServiceURL": "https://github.com/wyf60/codex-bilingual-hover/blob/main/TERMS.md",
+    "composerIcon": "./assets/composer-icon.png",
+    "logo": "./assets/logo.png",
+    "screenshots": [
+      "./assets/screenshot-plugin-directory.png"
+    ]
+  }
+}

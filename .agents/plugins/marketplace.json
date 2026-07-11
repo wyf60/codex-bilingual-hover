@@ -1,0 +1,20 @@
+{
+  "name": "codex-bilingual-hover",
+  "interface": {
+    "displayName": "Codex Bilingual Hover"
+  },
+  "plugins": [
+    {
+      "name": "codex-bilingual-hover",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex-bilingual-hover"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
