@@ -25,6 +25,19 @@ private enum AXTextReader {
         let bundleID = app?.bundleIdentifier ?? ""
         if bundleID == helperBundleID { return nil }
         if codexOnly && !isCodexProcess(app, bundleID: bundleID) { return nil }
+        if isSuppressedChrome(element) { return nil }
+
+        // A localized navigation control can expose an unrelated English
+        // accessibility description (for example, the Chinese “插件” tab exposing
+        // the host name “Codex”). Treat the visible localized label as authoritative
+        // and do not fall back to ancestor metadata.
+        if isInteractiveChrome(element) {
+            let primary = primaryTextValues(of: element)
+            if primary.contains(where: containsHan),
+               !primary.contains(where: { normalize($0) != nil }) {
+                return nil
+            }
+        }
 
         var roots = [element]
         var ancestor = element
@@ -71,6 +84,18 @@ private enum AXTextReader {
         let bundleID = app?.bundleIdentifier ?? ""
         if bundleID == helperBundleID { return false }
         return isCodexProcess(app, bundleID: bundleID)
+    }
+
+    static func shouldSuppressTranslation(at point: CGPoint, helperBundleID: String?) -> Bool {
+        let system = AXUIElementCreateSystemWide()
+        var rawElement: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &rawElement) == .success,
+              let element = rawElement else { return true }
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        let app = NSRunningApplication(processIdentifier: pid)
+        if app?.bundleIdentifier == helperBundleID { return true }
+        return isSuppressedChrome(element)
     }
 
     static func isPluginSurfaceVisible() -> Bool {
@@ -260,6 +285,7 @@ private enum AXTextReader {
         ancestorFrames: [CGRect],
         matches: inout [Target]
     ) {
+        if isSuppressedChrome(element) { return }
         let elementFrame = frame(of: element)
         if let elementFrame, !elementFrame.contains(point) { return }
 
@@ -592,6 +618,55 @@ private enum AXTextReader {
         return results
     }
 
+    private static func primaryTextValues(of element: AXUIElement) -> [String] {
+        stringValues(of: element, attributes: [kAXValueAttribute, kAXTitleAttribute])
+    }
+
+    private static func stringValues(of element: AXUIElement, attributes: [String]) -> [String] {
+        var results: [String] = []
+        for attribute in attributes {
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { continue }
+            if let string = value as? String {
+                results.append(string)
+            } else if let attributed = value as? NSAttributedString {
+                results.append(attributed.string)
+            } else if let strings = value as? [String] {
+                results.append(contentsOf: strings)
+            }
+        }
+        return results
+    }
+
+    private static func role(of element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &value) == .success else { return nil }
+        return value as? String
+    }
+
+    private static func isInteractiveChrome(_ element: AXUIElement) -> Bool {
+        guard let role = role(of: element) else { return false }
+        return [kAXButtonRole, kAXRadioButtonRole, kAXCheckBoxRole, kAXPopUpButtonRole,
+                kAXMenuButtonRole, kAXTabGroupRole, kAXToolbarRole].contains(role)
+    }
+
+    private static func isSuppressedChrome(_ element: AXUIElement) -> Bool {
+        let suppressedRoles: Set<String> = [
+            kAXMenuBarRole, kAXMenuBarItemRole, kAXMenuRole, kAXMenuItemRole
+        ]
+        var current: AXUIElement? = element
+        for _ in 0..<8 {
+            guard let item = current else { break }
+            if let itemRole = role(of: item), suppressedRoles.contains(itemRole) { return true }
+            current = elementAttribute(item, kAXParentAttribute)
+        }
+        return false
+    }
+
+    private static func containsHan(_ value: String) -> Bool {
+        value.unicodeScalars.contains { (0x4E00...0x9FFF).contains(Int($0.value)) }
+    }
+
     static func normalize(_ value: String) -> String? {
         let text = value
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
@@ -600,6 +675,8 @@ private enum AXTextReader {
         guard text.range(of: "[A-Za-z]", options: .regularExpression) != nil else { return nil }
         let hanCount = text.unicodeScalars.filter { (0x4E00...0x9FFF).contains(Int($0.value)) }.count
         guard hanCount * 3 < text.count else { return nil }
+        let protectedHostBrands: Set<String> = ["codex", "chatgpt", "openai"]
+        if protectedHostBrands.contains(text.lowercased()) { return nil }
         return text
     }
 }
@@ -653,8 +730,7 @@ private enum OCRTextReader {
         let anchor = lines
             .filter { $0.frame.insetBy(dx: -10, dy: -10).contains(point) }
             .min { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
-            ?? lines.min { distance(from: point, to: $0.frame) < distance(from: point, to: $1.frame) }
-        guard let anchor, distance(from: point, to: anchor.frame) <= 28 else { return nil }
+        guard let anchor else { return nil }
 
         let sorted = lines.sorted {
             if abs($0.frame.minY - $1.frame.minY) < 4 { return $0.frame.minX < $1.frame.minX }
@@ -751,6 +827,11 @@ final class HoverTranslatorApp: NSObject, NSApplicationDelegate {
         if let index = CommandLine.arguments.firstIndex(of: "--classify-plugin-title"),
            CommandLine.arguments.indices.contains(index + 1) {
             print(AXTextReader.isPlausiblePluginTitle(CommandLine.arguments[index + 1]) ? "plugin-title" : "host-label")
+            return
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--normalize-text"),
+           CommandLine.arguments.indices.contains(index + 1) {
+            print(AXTextReader.normalize(CommandLine.arguments[index + 1]) ?? "rejected")
             return
         }
         if let index = CommandLine.arguments.firstIndex(of: "--tooltip-size"),
@@ -961,7 +1042,7 @@ final class HoverTranslatorApp: NSObject, NSApplicationDelegate {
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.ignoresMouseEvents = true
-        panel.hidesOnDeactivate = false
+        panel.hidesOnDeactivate = true
         let hostingView = NSHostingView(rootView: TranslationTooltip(model: model))
         panel.contentView = hostingView
         self.hostingView = hostingView
@@ -1171,6 +1252,14 @@ final class HoverTranslatorModel: ObservableObject {
         }
 
         guard let quartzPoint = CGEvent(source: nil)?.location else {
+            resetCandidate()
+            return
+        }
+
+        // Native menu tracking sits above the Codex content while the underlying
+        // plugin page remains visible. Clear any stale tooltip before considering
+        // the previous active hover region and do not run OCR against menus.
+        if AXTextReader.shouldSuppressTranslation(at: quartzPoint, helperBundleID: Bundle.main.bundleIdentifier) {
             resetCandidate()
             return
         }

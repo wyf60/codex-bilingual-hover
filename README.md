@@ -8,6 +8,8 @@ Codex Bilingual Hover adds a Chinese/English hover overlay to the Codex plugin d
 - Keeps the overlay stable while the pointer stays in the same card or text region.
 - Supports plugin directory cards and arbitrary plugin detail pages without a hard-coded plugin-name catalog.
 - Rejects normal task, chat, composer, answer, and file-preview surfaces.
+- Hides the overlay over native menus and localized navigation controls.
+- Preserves the Codex, ChatGPT, and OpenAI brand names.
 - Uses local macOS Vision OCR as a fallback for inaccessible detail-page text.
 - Uses Windows UI Automation and an offline dictionary on Windows.
 - Does not patch or inject code into ChatGPT or Codex.

@@ -50,7 +50,23 @@ function Normalize-EnglishText([string]$Value) {
     $text = [regex]::Replace($Value, "\s+", " ").Trim()
     if ($text.Length -lt 2 -or $text.Length -gt 1200) { return $null }
     if ($text -notmatch "[A-Za-z]") { return $null }
+    if (@("codex", "chatgpt", "openai") -contains $text.ToLowerInvariant()) { return $null }
     return $text
+}
+
+function Test-SuppressedControl([System.Windows.Automation.AutomationElement]$Element) {
+    $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
+    $current = $Element
+    for ($i = 0; $i -lt 8 -and $null -ne $current; $i++) {
+        try { $controlType = $current.Current.ControlType } catch { return $true }
+        if ($controlType -eq [System.Windows.Automation.ControlType]::Menu -or
+            $controlType -eq [System.Windows.Automation.ControlType]::MenuBar -or
+            $controlType -eq [System.Windows.Automation.ControlType]::MenuItem) {
+            return $true
+        }
+        try { $current = $walker.GetParent($current) } catch { break }
+    }
+    return $false
 }
 
 function Test-PlausiblePluginTitle([string]$Value) {
@@ -83,6 +99,23 @@ function Get-CandidateTarget(
     [System.Windows.Automation.AutomationElement]$Element,
     [System.Windows.Point]$Point
 ) {
+    if (Test-SuppressedControl $Element) { return $null }
+    try {
+        $directName = [string]$Element.Current.Name
+        $directType = $Element.Current.ControlType
+        $interactiveTypes = @(
+            [System.Windows.Automation.ControlType]::Button,
+            [System.Windows.Automation.ControlType]::CheckBox,
+            [System.Windows.Automation.ControlType]::RadioButton,
+            [System.Windows.Automation.ControlType]::Tab,
+            [System.Windows.Automation.ControlType]::TabItem,
+            [System.Windows.Automation.ControlType]::ToolBar
+        )
+        if ($interactiveTypes -contains $directType -and $directName -match "[\u4e00-\u9fff]" -and
+            $null -eq (Normalize-EnglishText $directName)) {
+            return $null
+        }
+    } catch {}
     $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
     $roots = New-Object System.Collections.Generic.List[System.Windows.Automation.AutomationElement]
     $current = $Element
@@ -354,6 +387,15 @@ $timer.Add_Tick({
     $point = [System.Windows.Point]::new($cursor.X, $cursor.Y)
     try { $element = [System.Windows.Automation.AutomationElement]::FromPoint($point) } catch { $element = $null }
     if ($null -eq $element) {
+        $window.Hide()
+        $script:candidateText = ""
+        $script:candidateRect = $null
+        $script:activeText = ""
+        $script:activeRect = $null
+        return
+    }
+
+    if (Test-SuppressedControl $element) {
         $window.Hide()
         $script:candidateText = ""
         $script:candidateRect = $null
