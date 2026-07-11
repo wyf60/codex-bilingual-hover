@@ -721,6 +721,50 @@ private enum OCRTextReader {
         return target(from: lines, at: point)
     }
 
+    static func pluginSurfaceVisible(at point: CGPoint) async -> Bool {
+        guard CGPreflightScreenCaptureAccess() else { return false }
+        guard let content = try? await SCShareableContent.excludingDesktopWindows(
+            false,
+            onScreenWindowsOnly: true
+        ), let display = content.displays.first(where: { $0.frame.contains(point) }) ?? content.displays.first else {
+            return false
+        }
+
+        let configuration = SCStreamConfiguration()
+        configuration.sourceRect = display.frame.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
+        configuration.width = max(1, Int(display.frame.width))
+        configuration.height = max(1, Int(display.frame.height))
+        configuration.pixelFormat = kCVPixelFormatType_32BGRA
+        configuration.showsCursor = false
+
+        let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+        guard let image = try? await SCScreenshotManager.captureImage(
+            contentFilter: filter,
+            configuration: configuration
+        ) else { return false }
+
+        let strings = recognizedRawStrings(in: image).map {
+            $0.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression).lowercased()
+        }
+        let joined = strings.joined(separator: " ")
+        if joined.contains("task actions") || joined.contains("任务操作") { return false }
+
+        // Stable host-page labels only; plugin titles are intentionally absent.
+        let directorySignals = [
+            "search plugins", "搜索插件", "featured", "productivity",
+            "已安装", "公开", "个人"
+        ].filter { joined.contains($0) }.count
+        let directoryVisible = directorySignals >= 2 &&
+            (joined.contains("featured") || joined.contains("productivity") || joined.contains("搜索插件"))
+
+        let detailActionVisible = [
+            "try now", "install plugin", "add plugin", "立即试用", "安装插件"
+        ].contains { joined.contains($0) }
+        let detailSectionsVisible = (joined.contains("插件") || joined.contains("plugins")) &&
+            ["mcp", "应用", "技能"].contains { joined.contains($0) }
+        return directoryVisible || detailActionVisible || detailSectionsVisible
+    }
+
     static func target(in image: CGImage, at point: CGPoint) -> AXTextReader.Target? {
         target(from: recognizedLines(in: image), at: point)
     }
@@ -773,6 +817,17 @@ private enum OCRTextReader {
             )
             return Line(text: normalized, frame: frame)
         }
+    }
+
+    private static func recognizedRawStrings(in image: CGImage) -> [String] {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .fast
+        request.recognitionLanguages = ["en-US", "zh-Hans"]
+        request.usesLanguageCorrection = true
+        let handler = VNImageRequestHandler(cgImage: image, options: [:])
+        guard (try? handler.perform([request])) != nil,
+              let observations = request.results else { return [] }
+        return observations.compactMap { $0.topCandidates(1).first?.string }
     }
 
     private static func distance(from point: CGPoint, to rect: CGRect) -> CGFloat {
@@ -1174,6 +1229,7 @@ final class HoverTranslatorModel: ObservableObject {
     private var activeRegion: CGRect?
     private var pluginSurfaceVisible = false
     private var nextPluginSurfaceCheck = Date.distantPast
+    private var surfaceOCRInFlight = false
     private var panelVisible = false
     private var showCount = 0
     private var hideCount = 0
@@ -1243,17 +1299,35 @@ final class HoverTranslatorModel: ObservableObject {
         }
 
         let now = Date()
-        if codexOnly && now >= nextPluginSurfaceCheck {
-            pluginSurfaceVisible = AXTextReader.isPluginSurfaceVisible()
-            nextPluginSurfaceCheck = now.addingTimeInterval(0.40)
-        }
-        guard !codexOnly || pluginSurfaceVisible else {
-            resetOCRTracking()
+        guard let quartzPoint = CGEvent(source: nil)?.location else {
             resetCandidate()
             return
         }
-
-        guard let quartzPoint = CGEvent(source: nil)?.location else {
+        if codexOnly && now >= nextPluginSurfaceCheck {
+            let accessibilitySurface = AXTextReader.isPluginSurfaceVisible()
+            if accessibilitySurface {
+                pluginSurfaceVisible = true
+                nextPluginSurfaceCheck = now.addingTimeInterval(0.60)
+            } else if CGPreflightScreenCaptureAccess(), !surfaceOCRInFlight,
+                      AXTextReader.isPointInCodex(quartzPoint, helperBundleID: Bundle.main.bundleIdentifier) {
+                surfaceOCRInFlight = true
+                nextPluginSurfaceCheck = now.addingTimeInterval(1.20)
+                let requestedPoint = quartzPoint
+                Task { [weak self] in
+                    let visible = await OCRTextReader.pluginSurfaceVisible(at: requestedPoint)
+                    guard let self else { return }
+                    self.surfaceOCRInFlight = false
+                    self.pluginSurfaceVisible = visible
+                    if !visible { self.resetCandidate() }
+                    self.writeDebug(event: visible ? "surface-ocr-visible" : "surface-ocr-hidden", text: "")
+                }
+            } else {
+                pluginSurfaceVisible = false
+                nextPluginSurfaceCheck = now.addingTimeInterval(0.60)
+            }
+        }
+        guard !codexOnly || pluginSurfaceVisible else {
+            resetOCRTracking()
             resetCandidate()
             return
         }

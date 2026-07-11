@@ -1,7 +1,8 @@
-# Release notes — 0.3.2 public-review candidate
+# Release notes — 0.3.3 public-review candidate
 
 Maintenance update for the Codex Bilingual Hover public-review candidate.
 
+- Falls back to local full-screen OCR for plugin-page gating when ChatGPT stops exposing web content after an app restart.
 - Keeps the accessory-app overlay visible while Codex remains the active application.
 - Suppresses translation while macOS or Windows native menus are open, immediately clearing stale overlays that could otherwise appear behind a menu.
 - Prevents localized navigation controls from falling back to unrelated English accessibility metadata.
