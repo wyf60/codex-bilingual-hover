@@ -1,0 +1,42 @@
+name: Validate plugin
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate JSON and required files
+        run: |
+          python -m json.tool .agents/plugins/marketplace.json >/dev/null
+          python -m json.tool plugins/codex-bilingual-hover/.codex-plugin/plugin.json >/dev/null
+          test -f plugins/codex-bilingual-hover/skills/manage-bilingual-hover/SKILL.md
+          test -f PRIVACY.md
+          test -f TERMS.md
+          ! find plugins -path '*/.build/*' -print -quit | grep -q .
+
+  windows-static:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse and inspect Windows helper
+        shell: pwsh
+        run: ./tests/validate-windows.ps1
+
+  macos-build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate shell and property lists
+        run: |
+          zsh -n plugins/codex-bilingual-hover/skills/manage-bilingual-hover/scripts/manage-helper.sh
+          plutil -lint plugins/codex-bilingual-hover/skills/manage-bilingual-hover/scripts/hover-helper/Info.plist
+          codesign --verify --deep --strict --verbose=2 "plugins/codex-bilingual-hover/skills/manage-bilingual-hover/scripts/bundled/macos/Codex Hover Translator.app"
+      - name: Build macOS helper from source
+        run: |
+          xcrun swift build -c release \
+            --package-path plugins/codex-bilingual-hover/skills/manage-bilingual-hover/scripts/hover-helper
+

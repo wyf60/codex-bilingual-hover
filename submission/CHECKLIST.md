@@ -11,13 +11,16 @@
 - [x] Logo source, PNG listing assets, and a product screenshot
 - [x] Bundled universal macOS helper and source code
 - [x] Local-only data-flow explanation
+- [x] GitHub Windows PowerShell syntax and policy validation
+- [x] Manual Windows 10/11 test plan
+- [x] Apple Developer ID signing and notarization runbook
 
 ## Required before OpenAI submission
 
 - [ ] Verify an individual or business identity in the OpenAI Platform organization
 - [ ] Ensure the submitter has Apps Management write access
 - [x] Add final public website, repository, support, privacy, and terms URLs to the manifest and repository materials
-- [ ] Sign and notarize the macOS helper with a stable Apple Developer ID
+- [ ] Install a Developer ID Application certificate, then sign and notarize the macOS helper
 - [ ] Test the final Windows package on Windows 10 and Windows 11
 - [ ] Consider Windows code signing to reduce SmartScreen warnings
 - [ ] Re-run plugin validation and security review on the exact upload bundle
