@@ -2,7 +2,7 @@
 
 ## Complete in this repository
 
-- [x] Clean plugin version (`0.3.0`)
+- [x] Clean plugin version (`0.3.3`)
 - [x] Final plugin manifest and skill tree
 - [x] Marketplace metadata for Git distribution
 - [x] Public listing copy and starter prompts

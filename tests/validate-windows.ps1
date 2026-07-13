@@ -16,7 +16,7 @@ foreach ($path in @($manager, $helper)) {
 }
 
 $content = Get-Content -LiteralPath $helper -Raw
-foreach ($required in @("Task actions", "Try now", "Install plugin", "UIAutomationClient", "PresentationFramework")) {
+foreach ($required in @("Task actions", "Try now", "Install plugin", "UIAutomationClient", "PresentationFramework", "MenuItem", '"codex", "chatgpt", "openai"')) {
     if (-not $content.Contains($required)) {
         throw "Missing required Windows surface or framework marker: $required"
     }
@@ -29,4 +29,3 @@ foreach ($forbidden in @("knownPluginTitles", "knownTitles", "Invoke-WebRequest"
 }
 
 Write-Output "Windows PowerShell parse and policy checks passed."
-

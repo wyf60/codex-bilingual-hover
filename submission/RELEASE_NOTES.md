@@ -1,6 +1,13 @@
-# Release notes — 0.3.0 public-review candidate
+# Release notes — 0.3.3 public-review candidate
 
-Initial public-review candidate for Codex Bilingual Hover.
+Maintenance update for the Codex Bilingual Hover public-review candidate.
+
+- Falls back to local full-screen OCR for plugin-page gating when ChatGPT stops exposing web content after an app restart.
+- Keeps the accessory-app overlay visible while Codex remains the active application.
+- Suppresses translation while macOS or Windows native menus are open, immediately clearing stale overlays that could otherwise appear behind a menu.
+- Prevents localized navigation controls from falling back to unrelated English accessibility metadata.
+- Protects the host brands Codex, ChatGPT, and OpenAI from literal machine translation.
+- Requires OCR text to be directly under the pointer instead of selecting nearby text.
 
 - Provides Chinese hover translations for the Codex plugin directory and arbitrary plugin detail pages.
 - Rejects normal task, chat, answer, composer, and file-preview surfaces.

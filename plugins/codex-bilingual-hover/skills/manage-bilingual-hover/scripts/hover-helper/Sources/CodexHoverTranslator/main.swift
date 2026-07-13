@@ -25,6 +25,19 @@ private enum AXTextReader {
         let bundleID = app?.bundleIdentifier ?? ""
         if bundleID == helperBundleID { return nil }
         if codexOnly && !isCodexProcess(app, bundleID: bundleID) { return nil }
+        if isSuppressedChrome(element) { return nil }
+
+        // A localized navigation control can expose an unrelated English
+        // accessibility description (for example, the Chinese “插件” tab exposing
+        // the host name “Codex”). Treat the visible localized label as authoritative
+        // and do not fall back to ancestor metadata.
+        if isInteractiveChrome(element) {
+            let primary = primaryTextValues(of: element)
+            if primary.contains(where: containsHan),
+               !primary.contains(where: { normalize($0) != nil }) {
+                return nil
+            }
+        }
 
         var roots = [element]
         var ancestor = element
@@ -71,6 +84,18 @@ private enum AXTextReader {
         let bundleID = app?.bundleIdentifier ?? ""
         if bundleID == helperBundleID { return false }
         return isCodexProcess(app, bundleID: bundleID)
+    }
+
+    static func shouldSuppressTranslation(at point: CGPoint, helperBundleID: String?) -> Bool {
+        let system = AXUIElementCreateSystemWide()
+        var rawElement: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &rawElement) == .success,
+              let element = rawElement else { return true }
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        let app = NSRunningApplication(processIdentifier: pid)
+        if app?.bundleIdentifier == helperBundleID { return true }
+        return isSuppressedChrome(element)
     }
 
     static func isPluginSurfaceVisible() -> Bool {
@@ -260,6 +285,7 @@ private enum AXTextReader {
         ancestorFrames: [CGRect],
         matches: inout [Target]
     ) {
+        if isSuppressedChrome(element) { return }
         let elementFrame = frame(of: element)
         if let elementFrame, !elementFrame.contains(point) { return }
 
@@ -592,6 +618,55 @@ private enum AXTextReader {
         return results
     }
 
+    private static func primaryTextValues(of element: AXUIElement) -> [String] {
+        stringValues(of: element, attributes: [kAXValueAttribute, kAXTitleAttribute])
+    }
+
+    private static func stringValues(of element: AXUIElement, attributes: [String]) -> [String] {
+        var results: [String] = []
+        for attribute in attributes {
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { continue }
+            if let string = value as? String {
+                results.append(string)
+            } else if let attributed = value as? NSAttributedString {
+                results.append(attributed.string)
+            } else if let strings = value as? [String] {
+                results.append(contentsOf: strings)
+            }
+        }
+        return results
+    }
+
+    private static func role(of element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &value) == .success else { return nil }
+        return value as? String
+    }
+
+    private static func isInteractiveChrome(_ element: AXUIElement) -> Bool {
+        guard let role = role(of: element) else { return false }
+        return [kAXButtonRole, kAXRadioButtonRole, kAXCheckBoxRole, kAXPopUpButtonRole,
+                kAXMenuButtonRole, kAXTabGroupRole, kAXToolbarRole].contains(role)
+    }
+
+    private static func isSuppressedChrome(_ element: AXUIElement) -> Bool {
+        let suppressedRoles: Set<String> = [
+            kAXMenuBarRole, kAXMenuBarItemRole, kAXMenuRole, kAXMenuItemRole
+        ]
+        var current: AXUIElement? = element
+        for _ in 0..<8 {
+            guard let item = current else { break }
+            if let itemRole = role(of: item), suppressedRoles.contains(itemRole) { return true }
+            current = elementAttribute(item, kAXParentAttribute)
+        }
+        return false
+    }
+
+    private static func containsHan(_ value: String) -> Bool {
+        value.unicodeScalars.contains { (0x4E00...0x9FFF).contains(Int($0.value)) }
+    }
+
     static func normalize(_ value: String) -> String? {
         let text = value
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
@@ -600,6 +675,8 @@ private enum AXTextReader {
         guard text.range(of: "[A-Za-z]", options: .regularExpression) != nil else { return nil }
         let hanCount = text.unicodeScalars.filter { (0x4E00...0x9FFF).contains(Int($0.value)) }.count
         guard hanCount * 3 < text.count else { return nil }
+        let protectedHostBrands: Set<String> = ["codex", "chatgpt", "openai"]
+        if protectedHostBrands.contains(text.lowercased()) { return nil }
         return text
     }
 }
@@ -644,6 +721,50 @@ private enum OCRTextReader {
         return target(from: lines, at: point)
     }
 
+    static func pluginSurfaceVisible(at point: CGPoint) async -> Bool {
+        guard CGPreflightScreenCaptureAccess() else { return false }
+        guard let content = try? await SCShareableContent.excludingDesktopWindows(
+            false,
+            onScreenWindowsOnly: true
+        ), let display = content.displays.first(where: { $0.frame.contains(point) }) ?? content.displays.first else {
+            return false
+        }
+
+        let configuration = SCStreamConfiguration()
+        configuration.sourceRect = display.frame.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
+        configuration.width = max(1, Int(display.frame.width))
+        configuration.height = max(1, Int(display.frame.height))
+        configuration.pixelFormat = kCVPixelFormatType_32BGRA
+        configuration.showsCursor = false
+
+        let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+        guard let image = try? await SCScreenshotManager.captureImage(
+            contentFilter: filter,
+            configuration: configuration
+        ) else { return false }
+
+        let strings = recognizedRawStrings(in: image).map {
+            $0.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression).lowercased()
+        }
+        let joined = strings.joined(separator: " ")
+        if joined.contains("task actions") || joined.contains("任务操作") { return false }
+
+        // Stable host-page labels only; plugin titles are intentionally absent.
+        let directorySignals = [
+            "search plugins", "搜索插件", "featured", "productivity",
+            "已安装", "公开", "个人"
+        ].filter { joined.contains($0) }.count
+        let directoryVisible = directorySignals >= 2 &&
+            (joined.contains("featured") || joined.contains("productivity") || joined.contains("搜索插件"))
+
+        let detailActionVisible = [
+            "try now", "install plugin", "add plugin", "立即试用", "安装插件"
+        ].contains { joined.contains($0) }
+        let detailSectionsVisible = (joined.contains("插件") || joined.contains("plugins")) &&
+            ["mcp", "应用", "技能"].contains { joined.contains($0) }
+        return directoryVisible || detailActionVisible || detailSectionsVisible
+    }
+
     static func target(in image: CGImage, at point: CGPoint) -> AXTextReader.Target? {
         target(from: recognizedLines(in: image), at: point)
     }
@@ -653,8 +774,7 @@ private enum OCRTextReader {
         let anchor = lines
             .filter { $0.frame.insetBy(dx: -10, dy: -10).contains(point) }
             .min { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
-            ?? lines.min { distance(from: point, to: $0.frame) < distance(from: point, to: $1.frame) }
-        guard let anchor, distance(from: point, to: anchor.frame) <= 28 else { return nil }
+        guard let anchor else { return nil }
 
         let sorted = lines.sorted {
             if abs($0.frame.minY - $1.frame.minY) < 4 { return $0.frame.minX < $1.frame.minX }
@@ -697,6 +817,17 @@ private enum OCRTextReader {
             )
             return Line(text: normalized, frame: frame)
         }
+    }
+
+    private static func recognizedRawStrings(in image: CGImage) -> [String] {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .fast
+        request.recognitionLanguages = ["en-US", "zh-Hans"]
+        request.usesLanguageCorrection = true
+        let handler = VNImageRequestHandler(cgImage: image, options: [:])
+        guard (try? handler.perform([request])) != nil,
+              let observations = request.results else { return [] }
+        return observations.compactMap { $0.topCandidates(1).first?.string }
     }
 
     private static func distance(from point: CGPoint, to rect: CGRect) -> CGFloat {
@@ -751,6 +882,11 @@ final class HoverTranslatorApp: NSObject, NSApplicationDelegate {
         if let index = CommandLine.arguments.firstIndex(of: "--classify-plugin-title"),
            CommandLine.arguments.indices.contains(index + 1) {
             print(AXTextReader.isPlausiblePluginTitle(CommandLine.arguments[index + 1]) ? "plugin-title" : "host-label")
+            return
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--normalize-text"),
+           CommandLine.arguments.indices.contains(index + 1) {
+            print(AXTextReader.normalize(CommandLine.arguments[index + 1]) ?? "rejected")
             return
         }
         if let index = CommandLine.arguments.firstIndex(of: "--tooltip-size"),
@@ -961,6 +1097,8 @@ final class HoverTranslatorApp: NSObject, NSApplicationDelegate {
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.ignoresMouseEvents = true
+        // This accessory app stays inactive while Codex is frontmost. Native menu
+        // suppression is handled by the pointer/AX checks in the polling loop.
         panel.hidesOnDeactivate = false
         let hostingView = NSHostingView(rootView: TranslationTooltip(model: model))
         panel.contentView = hostingView
@@ -1091,6 +1229,7 @@ final class HoverTranslatorModel: ObservableObject {
     private var activeRegion: CGRect?
     private var pluginSurfaceVisible = false
     private var nextPluginSurfaceCheck = Date.distantPast
+    private var surfaceOCRInFlight = false
     private var panelVisible = false
     private var showCount = 0
     private var hideCount = 0
@@ -1160,9 +1299,32 @@ final class HoverTranslatorModel: ObservableObject {
         }
 
         let now = Date()
+        guard let quartzPoint = CGEvent(source: nil)?.location else {
+            resetCandidate()
+            return
+        }
         if codexOnly && now >= nextPluginSurfaceCheck {
-            pluginSurfaceVisible = AXTextReader.isPluginSurfaceVisible()
-            nextPluginSurfaceCheck = now.addingTimeInterval(0.40)
+            let accessibilitySurface = AXTextReader.isPluginSurfaceVisible()
+            if accessibilitySurface {
+                pluginSurfaceVisible = true
+                nextPluginSurfaceCheck = now.addingTimeInterval(0.60)
+            } else if CGPreflightScreenCaptureAccess(), !surfaceOCRInFlight,
+                      AXTextReader.isPointInCodex(quartzPoint, helperBundleID: Bundle.main.bundleIdentifier) {
+                surfaceOCRInFlight = true
+                nextPluginSurfaceCheck = now.addingTimeInterval(1.20)
+                let requestedPoint = quartzPoint
+                Task { [weak self] in
+                    let visible = await OCRTextReader.pluginSurfaceVisible(at: requestedPoint)
+                    guard let self else { return }
+                    self.surfaceOCRInFlight = false
+                    self.pluginSurfaceVisible = visible
+                    if !visible { self.resetCandidate() }
+                    self.writeDebug(event: visible ? "surface-ocr-visible" : "surface-ocr-hidden", text: "")
+                }
+            } else {
+                pluginSurfaceVisible = false
+                nextPluginSurfaceCheck = now.addingTimeInterval(0.60)
+            }
         }
         guard !codexOnly || pluginSurfaceVisible else {
             resetOCRTracking()
@@ -1170,7 +1332,10 @@ final class HoverTranslatorModel: ObservableObject {
             return
         }
 
-        guard let quartzPoint = CGEvent(source: nil)?.location else {
+        // Native menu tracking sits above the Codex content while the underlying
+        // plugin page remains visible. Clear any stale tooltip before considering
+        // the previous active hover region and do not run OCR against menus.
+        if AXTextReader.shouldSuppressTranslation(at: quartzPoint, helperBundleID: Bundle.main.bundleIdentifier) {
             resetCandidate()
             return
         }

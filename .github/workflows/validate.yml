@@ -39,4 +39,10 @@ jobs:
         run: |
           xcrun swift build -c release \
             --package-path plugins/codex-bilingual-hover/skills/manage-bilingual-hover/scripts/hover-helper
-
+      - name: Verify protected host brands
+        run: |
+          BIN="$(xcrun swift build -c release --package-path plugins/codex-bilingual-hover/skills/manage-bilingual-hover/scripts/hover-helper --show-bin-path)/CodexHoverTranslator"
+          test "$("$BIN" --normalize-text Codex)" = rejected
+          test "$("$BIN" --normalize-text ChatGPT)" = rejected
+          test "$("$BIN" --normalize-text OpenAI)" = rejected
+          test "$("$BIN" --normalize-text 'Computer Use')" = 'Computer Use'
